@@ -1,5 +1,5 @@
 PYTHON_DIR=/Users/benacland/anaconda/envs/online
-PYTHON_VERSION=python3.6m
+PYTHON_VERSION=python3.4m
 
 OPENEPHYS_SOURCE_DIR = $(PROJECT_DIR)/../../../openEphysGUI
 
