@@ -191,7 +191,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "cp -R ${PROJECT_DIR}/../../build/Debug/open-ephys.app/Contents/PlugIns/PythonPlugin.bundle ${PROJECT_DIR}/../../../plugin-GUI/Builds/MacOSX/build/Debug/open-ephys.app/Contents/PlugIns\n";
+			shellScript = "cp -R ${PROJECT_DIR}/../../build/Debug/open-ephys.app/Contents/PlugIns/PythonPlugin.bundle /Users/benacland/Library/Application\\ Support/open-ephys/PlugIns\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

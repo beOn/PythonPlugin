@@ -1,7 +1,7 @@
-PYTHON_DIR = /usr/local/anaconda/envs/oeEnv
-PYTHON_VERSION = python3.6m
+PYTHON_DIR=/Users/benacland/anaconda/envs/online
+PYTHON_VERSION=python3.6m
 
-OPENEPHYS_SOURCE_DIR = $(PROJECT_DIR)/../../../plugin-GUI
+OPENEPHYS_SOURCE_DIR = $(PROJECT_DIR)/../../../openEphysGUI
 
 ALWAYS_SEARCH_USER_PATHS = NO
 CLANG_CXX_LANGUAGE_STANDARD = c++0x
