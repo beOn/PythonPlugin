@@ -12,15 +12,15 @@ plt.ion()
 class blp_trace(object):
         def __init__(self):
                 """initialize object data"""
-                print("I'm here!")
                 self.Enabled = 1
+                self.channel = 1
 
                 f = 4.0
                 fs = 100.0
                 a = np.array([np.sin(2.0*np.pi*f*t) for t in np.arange(0.0,10.0,1.0/fs)])
 
                 plt.plot(a)
-                plt.show(block=false)
+                plt.show()
         def startup(self, sr):
                 """to be run upon startup"""
         def plugin_name(self):
@@ -31,10 +31,14 @@ class blp_trace(object):
                 return self.Enabled
         def param_config(self):
                 """return button, sliders, etc to be present in the editor OE side"""
-                return []
+                chan_labels = list(range(1,33));
+                return [("int_set", "channel", chan_labels),]
         def bufferfunction(self, n_arr):
                 """Access to voltage data buffer. Returns events"""
-
+                cdef int chan_in
+                cdef int chan_out
+                chan_in = self.channel-1 # -1 because the list is 1-based
+                cdef int n_samples = n_arr.shape[1]
 
                 events = []
                 return events
