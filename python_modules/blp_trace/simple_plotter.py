@@ -1,4 +1,4 @@
-__author__ = 'fpbatta'
+__author__ = 'Ben Acland'
 
 import time
 import numpy as np

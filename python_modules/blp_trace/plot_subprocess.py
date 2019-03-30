@@ -1,7 +1,8 @@
+__author__ = 'Ben Acland'
+
 import matplotlib.pyplot as plt
 
 import sys
-__author__ = 'fpbatta'
 
 
 class PlotSubprocess(object):  # TODO more configuration stuff that may be obtained
