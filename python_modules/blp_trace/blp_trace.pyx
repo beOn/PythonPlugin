@@ -114,7 +114,7 @@ class BLPSpectPlotController(BasePlotController):
         if nChunks == 0:
             return
         for i in range(nChunks):
-            self.est_buff.write(np.abs(np.fft.rfft(self.plot_input_buffer.read(FFT_CHUNK_SIZE))).reshape(FFT_NFREQS,1))
+            self.est_buff.write(np.abs(np.fft.rfft(self.plot_input_buffer.read(FFT_CHUNK_SIZE)[self.plt_chan,:])).reshape(FFT_NFREQS,1))
 
         # set the data like so:
         C = self.est_buff.read().ravel()
