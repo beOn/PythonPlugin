@@ -91,7 +91,7 @@ class BaseMultiprocPlugin(object):
             self.ctrl_pipe.close()
             return []
         else:
-            self.ctrl_pipe.send({'data': n_arr})
+            self.ctrl_pipe.send(('data', n_arr))
         # NOTE: the following does not ensure that events related to the buffer
         # we just passed the subprocess will be returned on this call to
         # bufferfunction(). But that's probably ok... they'll be returned on a
