@@ -34,8 +34,9 @@ isDebug = False
 # =           Abstract Plugin           =
 # =======================================
 
-class BaseMultiprocPlugin():
+class BaseMultiprocPlugin(object):
     def __init__(self):
+        super(BaseMultiprocPlugin, self).__init__()
         #define variables
         self.ctrl_pipe = None
         self.controller = None
@@ -204,13 +205,6 @@ class BasePlotController(BaseController):
             interval=0.001                          # pause 1ms between buffer checks
             )
 
-    def init_preprocessors(self):
-        """
-        subclasses can override to set self.preprocessors to an ordered list of
-        BasePreprocThread subclasses
-        """
-        pass
-
     def is_ready(self):
         # TODO: this isn't used at this point... see method with same name in
         # base plugin class
@@ -326,7 +320,7 @@ class BasePlotController(BaseController):
             raise ex
         sys.exit(0)
 
-    # -----------  Static Methods  -----------
+    # -----------  Virtual Static Methods  -----------
     
     @staticmethod
     def param_config():
@@ -379,6 +373,13 @@ class BasePlotController(BaseController):
         """
         raise NotImplementedError("subclasses should override update_plot()")
 
+    def init_preprocessors(self):
+        """
+        subclasses can override to set self.preprocessors to an ordered list of
+        BasePreprocThread subclasses
+        """
+        raise NotImplementedError("subclasses should override init_preprocessors()")
+
     # -----------  Read-Only Properties  -----------
 
     @property
@@ -387,6 +388,16 @@ class BasePlotController(BaseController):
     @input_frequency.setter
     def input_frequency(self, val):
         pass
+
+    # -----------  Unimplemented  -----------
+
+    def handleEvents(eventType,sourceID,subProcessorIdx,timestamp,sourceIndex):
+        """handle events passed from OE"""
+        pass
+    def handleSpike(self, electrode, sortedID, n_arr):
+        """handle spikes passed from OE"""
+        pass
+    
 
 # =============================================
 # =           Preprocessing Threads           =
@@ -405,8 +416,8 @@ class DownsamplingThread(BasePreprocThread):
             **kwargs: keyword arguments to BasePreprocThread initializer
         """
         super(DownsamplingThread, self).__init__(*args, **kwargs)
-        self._fsIn = fsIn
-        self._fsOut = fsOut
+        self._fsIn = int(fsIn)
+        self._fsOut = int(fsOut)
         self._ratio = int(fsIn/fsOut)
         if min_chunk != None:
             self._chunk_size = int(chunk_size)
@@ -425,7 +436,7 @@ class DownsamplingThread(BasePreprocThread):
             d = self.input_buff.read(nChunks * self.chunk_size)
         
         # decimate as many complete chunks as you can (along the last axis)
-        self.output_buff.write(decimate(d, self.ratio, axis=d.ndim-1))
+        self.output_buff.write(decimate(d, self.ratio, axis=d.ndim-1, zero_phase=True))
 
     # -----------  Read-Only Properties  -----------
 
@@ -575,7 +586,7 @@ class PipeCleaner(object):
         self.should_die.set()
     
     # -----------  Read-Only Properties  -----------
-    
+
     @property
     def buffer(self):
         return self._buffer
@@ -689,7 +700,7 @@ class CircularBuff(object):
             
             # if you don't have a buffer yet, create one.
             if self._buffer is None:
-                self._buffer = np.ndarray((inChans, self.length), self.dtype)
+                self._buffer = np.zeros((inChans, self.length), self.dtype)
 
             # if the number of channels in the input doesn't match your buffer,
             # resize the buffer.
