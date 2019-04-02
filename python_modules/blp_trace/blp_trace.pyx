@@ -3,11 +3,16 @@
 # @Date:   2019-04-02 0:38:00
 
 import sys
+from os.path import dirname, join, abspath
 import numpy as np
 cimport numpy as np
 import matplotlib.pyplot as plt
 
-import 'multiproc_base.py'
+sys.path.append(dirname(__file__))
+sys.path.append(abspath(join(dirname(__file__),'../')))
+
+from .multiproc_base import (BaseMultiprocPlugin, BasePlotController,
+    ConstantLengthCircularBuff, DownsamplingThread)
 
 isDebug = False
 
@@ -76,7 +81,7 @@ class BLPSpectPlotController(BasePlotController):
     def start_plotting(self):
         # set up the plot
         self.figure, self.ax = plt.subplots()
-        self.mesh = ax.pcolormesh(np.array(range(61)),FREQS[1:], np.zeros((len(FREQS)-1,60)))
+        self.mesh = self.ax.pcolormesh(np.array(range(61)),FREQS[1:], np.zeros((len(FREQS)-1,60)))
         self.ax.margins(y=0.1)
         self.ax.set_xlim(0., 60.)
         self.ax.set_ylim(FREQS[1], FREQS[-1])
@@ -109,10 +114,10 @@ class BLPSpectPlotController(BasePlotController):
 
         # set the data like so:
         C = self.est_buff.read().ravel()
-        mesh.set_array(C)
+        self.mesh.set_array(C)
 
         # update the color bar limits like so:
-        mesh.set_clim(vmin=np.min(C), vmax=np.max(C))
+        self.mesh.set_clim(vmin=np.min(C), vmax=np.max(C))
 
         # redraw the plot
         self.ax.margins(y=0.1) # TODO: remove if you can
