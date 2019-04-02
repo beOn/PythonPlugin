@@ -29,18 +29,18 @@ FREQS = np.fft.rfftfreq(FFT_CHUNK_SIZE, 1/float(ds2))
 # ==============================
 # =           Plugin           =
 # ==============================
-
+        
 class BLPSpectPlotPlugin(BaseMultiprocPlugin):
     def __init__(self):
         super(BLPSpectPlotPlugin, self).__init__()
 
     # override init_controller
-    def init_controller(self):
+    def init_controller(self, input_frequency):
         """
         Subclasses should override this method to set self.controller to an
         instance of a concrete subclass of BasePlotController.
         """
-        self.controller = BLPSpectPlotController(plot_frequency=0.1)
+        self.controller = BLPSpectPlotController(input_frequency, plot_frequency=0.1)
     
     # TODO: override plugin_name
     def plugin_name(self):
