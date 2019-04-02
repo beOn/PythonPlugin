@@ -242,7 +242,7 @@ class BasePlotController(BaseController):
         commands = []
         other_msgs = [] # right now we don't do anything with these
         with self.pipe_reader.msg_lock:
-            for msg in self.pipe_reader.read_messages:
+            for msg in self.pipe_reader.read_messages():
                 # right now we just look for commands and pass them to
                 # self.handle_command
                 if (msg[0] == 'cmd'):
