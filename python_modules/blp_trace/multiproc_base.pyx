@@ -159,14 +159,17 @@ class BasePlotController(BaseController):
         self.preproc_threads = []
         self.plot_input_buffer = None
         self.params = {}
-        # event that lets us know when to knock it off
-        self.should_die = Event()
-        self.should_die.clear()
+        # event that lets us know when to knock it off (initialized later)
+        self.should_die = None
 
     def __call__(self, pipe):
         # NOTE: subclasses should not override this method, and should perform
         # all initialization actions in the various init_() methods. Plot
         # initialization should happen in start_plotting().
+        
+        # we don't set this in init because Event objects cannot be pickled
+        self.should_die = Event()
+        self.should_die.clear()
         
         # keep a ref to the pipe for sending objects back to the parent process
         self.pipe = pipe
