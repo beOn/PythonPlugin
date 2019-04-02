@@ -3,6 +3,7 @@
 # @Date:   2019-04-01 16:22:51
 
 import sys
+import os
 from os.path import dirname, join, abspath, isfile
 from collections import deque
 import numpy as np
@@ -48,13 +49,11 @@ class BaseMultiprocPlugin(object):
         # we'll use the 'spawn' start method
         ctx = mp.get_context('spawn')
         
-        # the subprocess will run under whatever version of python spawns it
-        pyPath = sys.executable
-        if not pyPath and isfile(pyPath):
+        # the OE plugin sets the 'PYTHONHOME' env variable... so we'll use that
+        pyPath = join(os.environ.get('PYTHONHOME','dammit'), 'bin', 'python')
+        if not (pyPath and isfile(pyPath)):
             raise FileNotFoundError("Could not find python executable '{}'".format(pyPath))
         ctx.set_executable(pyPath)
-        # TODO: remove
-        print("python path is {}".format(pyPath))
 
         # subclasses should override to set self.controller to a subclass of BasePlotController
         self.init_controller(int(sr))
