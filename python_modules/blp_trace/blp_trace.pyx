@@ -16,6 +16,8 @@ sys.path.append('/Users/benacland/devdir/PythonPlugin/python_modules/blp_trace')
 # from .multiproc_base import (BaseMultiprocPlugin, BasePlotController,
 #     ConstantLengthCircularBuff, DownsamplingThread)
 
+include './multiproc_base.pyx' # TODO: put this in a proper module
+
 isDebug = False
 
 # =================================
