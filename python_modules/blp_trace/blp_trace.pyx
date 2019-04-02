@@ -1,18 +1,20 @@
+# -*- coding: utf-8 -*-
+# @Author: Ben Acland
+# @Date:   2019-04-02 0:38:00
+
 import sys
 import numpy as np
 cimport numpy as np
-from scipy.signal import decimate
 import matplotlib.pyplot as plt
-from numpy_ringbuffer import RingBuffer
 
-from cython cimport view
+import 'multiproc_base.py'
 
 isDebug = False
 
-# put the plot in interactive mode
-plt.ion()
+# =================================
+# =           Constants           =
+# =================================
 
-# constants
 RAW_BUFF_LEN = 30000 * 100  # 100s buffer at 30kHz
 DEC_BUFF_LEN = 300 * 110    # keep this one longer than the one above (in sec)
 FFT_BUFF_LEN = 60
@@ -25,6 +27,38 @@ DEC_CHUNK_SIZE = fs
 FFT_CHUNK_SIZE = ds1
 FFT_NFREQS = int(ds2//2 + 1)
 FREQS = np.fft.rfftfreq(FFT_NFREQS)
+
+# =============================
+# =           Notes           =
+# =============================
+
+# TODO: your ui timer should use the "start of first figure draw" method from
+    # https://matplotlib.org/examples/event_handling/timers.html
+
+# ==============================
+# =           Plugin           =
+# ==============================
+
+class BLPSpectPlotPlugin(BaseMultiprocPlugin):
+    def __init__(self):
+        super(BLPTracePlugin, self).__init__()
+
+    # override init_controller
+    def init_controller(self, input_frequency):
+        """
+        Subclasses should override this method to set self.controller to an
+        instance of a concrete subclass of BasePlotController.
+        """
+        self.controller = BLPSpectPlotController(input_frequency, plot_frequency=0.1)
+    
+    # TODO: override plugin_name
+    def plugin_name(self):
+        """Subclasses should override to tell us their name
+        
+        Returns:
+            string: The name of this plugin
+        """
+        return "BLP Spect Plot"
 
 class blp_trace(object):
     def __init__(self):
