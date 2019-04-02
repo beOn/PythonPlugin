@@ -94,9 +94,6 @@ class BaseMultiprocPlugin():
     def bufferfunction(self, n_arr=None, finished=False):
         # we pass all channels to the controller, and let the decision about
         # which to pay attention to fall on the controller's shoulders
-        
-        # TODO: handle param setting in BasePlotController
-            # actually... you need to figure out how to get
 
         # update both of the following for the new pipe message rules
         send = self.ctrl_pipe.send
@@ -148,6 +145,7 @@ class BasePlotController(BaseController):
         self.preprocessors = []
         self.preproc_threads = []
         self.plot_input_buffer = None
+        self.params = {}
         # event that lets us know when to knock it off
         self.should_die = Event()
         self.should_die.clear()
@@ -252,6 +250,8 @@ class BasePlotController(BaseController):
                     kwargs = item
         return (cmd, args, kwargs)
 
+    def set_param(self, pKey, pVal):
+        self.params[pKey] = pVal
 
     def gui_callback(self):
         # check whether you should continue
