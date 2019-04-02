@@ -139,9 +139,8 @@ class BaseController(object):
         super(BaseController, self).__init__()
 
 class BasePlotController(BaseController):
-    def __init__(self, nChans, input_frequency, plot_frequency=0.1):
+    def __init__(self, input_frequency, plot_frequency=0.1):
         self.pipe = None
-        self._nChans = nChans
         self._input_frequency = input_frequency
         self.plot_frequency = plot_frequency
         self.pipe_reader = None
@@ -194,7 +193,6 @@ class BasePlotController(BaseController):
         subclasses can override to customize the pipe_reader settings
         """
         self.pipe_reader = PipeCleaner(self.pipe,
-            nChans=self.nChans,
             buff_len=int(self.input_frequency*20),  # 20s input buffer
             interval=0.001                          # pause 1ms between buffer checks
             )
@@ -371,13 +369,6 @@ class BasePlotController(BaseController):
     # read-only props
 
     @property
-    def nChans(self):
-        return self._nChans
-    @nChans.setter
-    def nChans(self, val):
-        pass
-
-    @property
     def input_frequency(self):
         return self._input_frequency
     @input_frequency.setter
@@ -450,12 +441,12 @@ class DownsamplingThread(BasePreprocThread):
         pass
 
 class BasePreprocThread(object):
-    def __init__(self, input_buff, output_dtype=np.float64, output_nChans=1, output_buff_len=30000*20, interval=0.01):
+    def __init__(self, input_buff, output_dtype=np.float64, output_buff_len=30000*20, interval=0.01):
         super(BasePreprocThread, self).__init__()
         self.interval = interval
         # set up the input and output buffers
         self._input_buff = input_buff
-        self._output_buff = CircularBuff(output_dtype, output_nChans, output_buff_len)
+        self._output_buff = CircularBuff(output_dtype, output_buff_len)
         # event that lets us know when to knock it off
         self.should_die = Event()
         self.should_die.clear()
@@ -501,10 +492,10 @@ class BasePreprocThread(object):
 
 class PipeCleaner(object):
     """Copies input from a pipe to a buffer and message queue"""
-    def __init__(self, pipe, nChans=1, dtype=np.float64, buff_len=30000*20, interval=0.001, msg_lock=RLock(), buff_lock=RLock()):
+    def __init__(self, pipe, dtype=np.float64, buff_len=30000*20, interval=0.001, msg_lock=RLock(), buff_lock=RLock()):
         super(PipeCleaner, self).__init__()
         self.pipe = pipe
-        self._buffer = CircularBuff(dtype, nChans, buff_len, rlock=buff_lock)
+        self._buffer = CircularBuff(dtype, buff_len, rlock=buff_lock)
         self._msg_lock = msg_lock
         self._msg_queue = deque()
         self.interval = interval
@@ -595,24 +586,23 @@ class CircularBuff(object):
 
     # TODO: fail noisily.
     """
-    def __init__(self, dtype, nChans, length, rlock=RLock()):
+    def __init__(self, dtype, length, rlock=RLock()):
         """Initializes the buffer and sets some read-only properties
         
         Args:
             dtype (type): should be numeric, but can be any type that works with ndarray
-            nChans (int): number of channels (rows) in the buffer
             length (int): number of samples (columns) the buffer can store
             rlock (RLock, optional): The RLock to use when working on the buffer
         """
         super(CircularBuff, self).__init__()
         self._dtype = dtype
-        self._nChans = nChans
         self._length = length
         self._rIdx = 0
         self._wIdx = 0
         self._rlock = rlock
-        # initialize the buffer
-        self._buffer = np.ndarray((nChans,length), dtype)
+        # initialize the buffer to None at first... it'll be created on the
+        # first call to write()
+        self._buffer = None
 
     # reading and writing
 
@@ -623,16 +613,23 @@ class CircularBuff(object):
         
         Args: nSamps (int): The number of samples to read
         
-        Returns: ndarray((self.nChans,nSamps) self.dtype): One row per channel,
-        nSamps columns long.
+        Returns: ndarray((nChans,nSamps) self.dtype): nChans may change...
         
         Raises: IndexError: If you ask for more samples than are available,
         we'll complain.
         """
         with self.rlock:
+            # NOTE: if you don't have a buffer, return None. That's what the
+            # user gets for not asking if there's anything to be read!
+            if self.buffer is None:
+                return None
+
+            # If the user asks for too much... give them a pie in the face
             if nSamps > self.nUnread:
                 raise IndexError("Asked for {}, but I only have {}".format(nSamps,self.nUnread))
-            out = np.ndarray((self.nChans, nSamps), self.dtype)
+
+            # Ok, it's a reasonable request. Let's give them what they asked for.
+            out = np.ndarray((np.shape(self.buffer)[0], nSamps), self.dtype)
             if self.rIdx + nSamps <= self.length:
                 out[:,:] = self.buffer[:,self.rIdx:self.rIdx+nSamps]
             else:
@@ -642,37 +639,44 @@ class CircularBuff(object):
             self._rIdx = (self._rIdx + nSamps) % self.length
 
             # if there's only 1 channel, squeeze the output
-            if self.nChans == 1:
-                return np.squeeze(out)
-            else:
-                return out
+            return np.squeeze(out) if np.shape(out)[0]==1 else out
 
     def write(self, samps):
         """Copies 'samps' to the buffer..
         
-        Args:
-            samps (np.ndarray): rowCount == self..nChans, one column per sample
+        NOTE: The buffer will automatically resize if the number of input rows
+              differs from previous calls.
         
-        Raises:
-            IndexError: If you don't have the right number of rows, we'll complain.
+        Args:
+            samps (np.ndarray): the data to add to the buffer
         """
         # check for empty
         if len(samps)==0:
             return
         with self.rlock:
-            # you can only write all channels simultaneously
+            # create a 2d view of samps so we can index 1d and 2d input the same way
             inShape = np.shape(samps)
-            if not ((len(inShape)==2 and inShape[0]==self.nChans) or (len(inShape)==1 and self.nChans==1)):
-                raise IndexError("all channels must be written simultaneously.")
-            # create a 2d view so we can index 1d and 2d input the same way
-            samps = samps.reshape((self.nChans, inShape[-1]))
-            if self.wIdx + inShape[-1] <= self.length:
-                self.buffer[:,self.wIdx:(self.wIdx+inShape[-1])] = samps
+            inChans = 1 if len(inShape) == 1 else inShape[0]
+            inSamps = inShape[-1]
+            samps = samps.reshape((inChans, inSamps))
+            
+            # if you don't have a buffer yet, create one.
+            if self._buffer is None:
+                self._buffer = np.ndarray((inChans, self.length), self.dtype)
+
+            # if the number of channels in the input doesn't match your buffer,
+            # resize the buffer.
+            if inChans != np.shape(self.buffer)[0]:
+                self._buffer.resize((inChans, self.length), refcheck=False)
+
+            # copy samps into the buffer
+            if self.wIdx + inSamps <= self.length:
+                self.buffer[:,self.wIdx:(self.wIdx+inSamps)] = samps
             else:
                 r = self.length - self.wIdx
                 self.buffer[:,self.wIdx:] = samps[:,0:r]
-                self.buffer[:,0:(inShape[-1]-r)] = samps[:,r:]
-            self._wIdx = (self._wIdx + inShape[-1]) % self.length
+                self.buffer[:,0:(inSamps-r)] = samps[:,r:]
+            self._wIdx = (self._wIdx + inSamps) % self.length
 
     # read-only properties
 
@@ -681,13 +685,6 @@ class CircularBuff(object):
         return self._dtype
     @dtype.setter
     def dtype(self, val):
-        pass
-
-    @property
-    def nChans(self):
-        return self._nChans
-    @nChans.setter
-    def nChans(self, val):
         pass
 
     @property
