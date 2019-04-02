@@ -462,7 +462,7 @@ class BasePreprocThread(object):
 
 class DownsamplingThread(BasePreprocThread):
     """Decimates data from one buffer, puts it in another"""
-    def __init__(self, fsIn, fsOut, chunk_size=None, *args, **kwargs):
+    def __init__(self, fsIn, fsOut, *args, chunk_size=None, **kwargs):
         """Init function.
         
         Args:
