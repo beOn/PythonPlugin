@@ -35,12 +35,12 @@ class BLPSpectPlotPlugin(BaseMultiprocPlugin):
         super(BLPSpectPlotPlugin, self).__init__()
 
     # override init_controller
-    def init_controller(self, input_frequency):
+    def init_controller(self):
         """
         Subclasses should override this method to set self.controller to an
         instance of a concrete subclass of BasePlotController.
         """
-        self.controller = BLPSpectPlotController(input_frequency, plot_frequency=0.1)
+        self.controller = BLPSpectPlotController(plot_frequency=0.1)
     
     # TODO: override plugin_name
     def plugin_name(self):

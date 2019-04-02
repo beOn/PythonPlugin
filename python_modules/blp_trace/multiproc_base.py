@@ -42,6 +42,8 @@ class BaseMultiprocPlugin(object):
         self.controller = None
         self.ctrl_processes = None
         self.has_child = False
+        # subclasses should override to set self.controller to a subclass of BasePlotController
+        self.init_controller()
 
     def startup(self, sr):
         # we'll use the 'spawn' start method
@@ -52,13 +54,12 @@ class BaseMultiprocPlugin(object):
         if not pyPath and isfile(pyPath):
             raise FileNotFoundError("Could not find python executable '{}'".format(pyPath))
         ctx.set_executable(pyPath)
-
-        # subclasses should override to set self.controller to a subclass of BasePlotController
-        self.init_controller(int(sr))
+        # TODO: remove
+        print("python path is {}".format(pyPath))
 
         # start up the subprocess
         self.ctrl_pipe, controllers_pipe = ctx.Pipe()
-        self.ctrl_processes = ctx.Process(target=self.controller, args=(controllers_pipe,))
+        self.ctrl_processes = ctx.Process(target=self.controller, args=(controllers_pipe,int(sr)))
         self.ctrl_processes.daemon = True
         self.ctrl_processes.start()
         self.has_child = True
@@ -114,7 +115,7 @@ class BaseMultiprocPlugin(object):
 
     # -----------  Virtual Methods  -----------
 
-    def init_controller(self, input_frequency):
+    def init_controller(self):
         """
         Subclasses should override this method to set self.controller to an
         instance of a concrete subclass of BasePlotController
@@ -146,9 +147,9 @@ class BaseController(object):
         super(BaseController, self).__init__()
 
 class BasePlotController(BaseController):
-    def __init__(self, input_frequency, plot_frequency=0.1):
+    def __init__(self, plot_frequency=0.1):
         self.pipe = None
-        self._input_frequency = input_frequency
+        self._input_frequency = None
         self.plot_frequency = plot_frequency
         self.pipe_reader = None
         self.pipe_thread = None
@@ -160,10 +161,11 @@ class BasePlotController(BaseController):
         self.should_die = Event()
         self.should_die.clear()
 
-    def __call__(self, pipe):
+    def __call__(self, pipe, input_frequency):
         # NOTE: subclasses should not override this method, and should perform
         # all initialization actions in the various init_() methods. Plot
         # initialization should happen in start_plotting().
+        self._input_frequency = input_frequency
         
         # keep a ref to the pipe for sending objects back to the parent process
         self.pipe = pipe
