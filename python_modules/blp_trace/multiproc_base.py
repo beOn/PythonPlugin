@@ -757,6 +757,24 @@ class CircularBuff(object):
     def nUnread(self, val):
         pass
 
-# TODO: don't define this here... users should define this themselves
-# pluginOp = BaseMultiprocPlugin()
-# include "../plugin.pyx"
+class ConstantLengthCircularBuff(CircularBuff):
+    """
+    Like CircularBuff, but rIdx is always wIdx+1.
+    
+    When you call read(), you'll always get back a buffer with self.length cols.
+    """
+    def __init__(self, *args, **kwargs):
+        super(ConstantLengthCircularBuff, self).__init__(*args, **kwargs)
+        self._wIdx = 0
+        self._rIdx = 1
+    
+    def write(self, samps):
+        # call super, then update rIdx
+        with self.rlock:
+            super(ConstantLengthCircularBuff, self).write(samps)
+            self._rIdx = (self + wIdx+1) % self.length
+
+    def read(self):
+        with self.rlock:
+            return np.hstack([self.buffer[:,self.rIdx:], self.buffer[:,:self.rIdx]])
+
