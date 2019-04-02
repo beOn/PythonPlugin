@@ -62,25 +62,6 @@ class BaseMultiprocPlugin():
         self.ctrl_processes.start()
         self.has_child = True
 
-    def init_controller(self, input_frequency):
-        """
-        Subclasses should override this method to set self.controller to an
-        instance of a concrete subclass of BasePlotController
-        # TODO: eventually, this could be 'a concrete subclass of BaseController'
-        """
-        raise NotImplementedError()
-
-    def plugin_name(self):
-        """Subclasses should override to tell us their name
-        
-        Returns:
-            string: The name of this plugin
-        
-        Raises:
-            NotImplementedError: Description
-        """
-        raise NotImplementedError()
-
     def is_ready(self):
         # TODO: (later) ask the subprocess to tell us if it's ready
         return self.has_child
@@ -129,6 +110,27 @@ class BaseMultiprocPlugin():
 
     def __del__(self):
         self.bufferfunction(finished=True)
+
+    # -----------  Virtual Methods  -----------
+
+    def init_controller(self, input_frequency):
+        """
+        Subclasses should override this method to set self.controller to an
+        instance of a concrete subclass of BasePlotController
+        # TODO: eventually, this could be 'a concrete subclass of BaseController'
+        """
+        raise NotImplementedError()
+
+    def plugin_name(self):
+        """Subclasses should override to tell us their name
+        
+        Returns:
+            string: The name of this plugin
+        
+        Raises:
+            NotImplementedError: Description
+        """
+        raise NotImplementedError()
 
 # ============================================
 # =           Abstract Controllers           =
@@ -213,35 +215,6 @@ class BasePlotController(BaseController):
         # TODO: this isn't used at this point... see method with same name in
         # base plugin class
         return 1
-
-    def start_plotting(self):
-        """
-        Subclasses should override this method.
-        
-        Overrides should do two things:
-            1. Plot initialization
-            2. Set up a timer that calls self.gui_callback() on a thread that
-               can manipulate the UI (usually the main thread). Most gui kits
-               offer something like this. For example, the instructions for
-               setting up a timer using matplotlib can be found here:
-               https://matplotlib.org/examples/event_handling/timers.html
-        
-        Raises: NotImplementedError: If you don't override this method, we'll
-        complain.
-        """
-        raise NotImplementedError("subclasses should override start_plotting()")
-
-    def stop_plotting(self):
-        """
-        Subclasses should override to kill whatever timer or thread they set up
-        in start_plotting(), close the plot
-        
-        This function is called from self.terminate(), and should return once
-        the timer is dead.
-        
-        Raises: NotImplementedError: If you don't override thie method, we'll complain.
-        """
-        raise NotImplementedError("subclasses should override stop_plotting()")
         
     def parse_command(self, cmd_tuple):
         # second item in the tuple is the name of the command.
@@ -308,21 +281,6 @@ class BasePlotController(BaseController):
         # release the ui input buffer lock
         self.plot_input_buffer.rlock.release();
 
-    def update_plot(self):
-        """
-        update your UI in this method, called from self.gui_callback()
-        
-        Note that this call is made under the plot input buffer's lock... so
-        make your plot update snappy!
-        
-        Raises: NotImplementedError: If you don't override this method, we'll
-        complain.
-        
-        @param      events  Any events not handled automatically by the base
-                            class. Do with them what you will.
-        """
-        raise NotImplementedError("subclasses should override update_plot()")
-
     def handle_command(self, command, *args, **kwargs):
         # make sure the command maps to a method this class implements
         if !(command in dir(self)):
@@ -340,11 +298,6 @@ class BasePlotController(BaseController):
             m(**kwargs)
         else:
             m()
-
-    @staticmethod
-    def param_config():
-        # subclasses may override if they want to surface UI elements in the OE GUI
-        return ()
 
     def terminate(self, ex=None):
         # after setting this event, gui_callback() won't process anything else
@@ -373,7 +326,60 @@ class BasePlotController(BaseController):
             raise ex
         sys.exit(0)
 
-    # read-only props
+    # -----------  Static Methods  -----------
+    
+    @staticmethod
+    def param_config():
+        # subclasses may override if they want to surface UI elements in the OE GUI
+        return ()
+
+    # -----------  Virtual Methods  -----------
+    
+    def start_plotting(self):
+        """
+        Subclasses should override this method.
+        
+        Overrides should do two things:
+            1. Plot initialization
+            2. Set up a timer that calls self.gui_callback() on a thread that
+               can manipulate the UI (usually the main thread). Most gui kits
+               offer something like this. For example, the instructions for
+               setting up a timer using matplotlib can be found here:
+               https://matplotlib.org/examples/event_handling/timers.html
+        
+        Raises: NotImplementedError: If you don't override this method, we'll
+        complain.
+        """
+        raise NotImplementedError("subclasses should override start_plotting()")
+
+    def stop_plotting(self):
+        """
+        Subclasses should override to kill whatever timer or thread they set up
+        in start_plotting(), close the plot
+        
+        This function is called from self.terminate(), and should return once
+        the timer is dead.
+        
+        Raises: NotImplementedError: If you don't override thie method, we'll complain.
+        """
+        raise NotImplementedError("subclasses should override stop_plotting()")
+    
+    def update_plot(self):
+        """
+        update your UI in this method, called from self.gui_callback()
+        
+        Note that this call is made under the plot input buffer's lock... so
+        make your plot update snappy!
+        
+        Raises: NotImplementedError: If you don't override this method, we'll
+        complain.
+        
+        @param      events  Any events not handled automatically by the base
+                            class. Do with them what you will.
+        """
+        raise NotImplementedError("subclasses should override update_plot()")
+
+    # -----------  Read-Only Properties  -----------
 
     @property
     def input_frequency(self):
@@ -421,7 +427,7 @@ class DownsamplingThread(BasePreprocThread):
         # decimate as many complete chunks as you can (along the last axis)
         self.output_buff.write(decimate(d, self.ratio, axis=d.ndim-1))
 
-    # read-only props
+    # -----------  Read-Only Properties  -----------
 
     @property
     def fsIn(self):
@@ -481,11 +487,12 @@ class BasePreprocThread(object):
         # after an ongoing) call to self.process()
         self.should_die.set()
 
-    # abstract methods
+    # -----------  Virtual Methods  -----------
+
     def process(self):
         raise NotImplementedError("subclasses of BasePreprocThread should override the method process()")
 
-    # read-only props
+    # -----------  Read-Only Properties  -----------
 
     @property
     def input_buff(self):
@@ -567,7 +574,8 @@ class PipeCleaner(object):
         # after an ongoing) call to self.clear_pipe()
         self.should_die.set()
     
-    # read-only properties
+    # -----------  Read-Only Properties  -----------
+    
     @property
     def buffer(self):
         return self._buffer
@@ -697,7 +705,7 @@ class CircularBuff(object):
                 self.buffer[:,0:(inSamps-r)] = samps[:,r:]
             self._wIdx = (self._wIdx + inSamps) % self.length
 
-    # read-only properties
+    # -----------  Read-Only Properties  -----------
 
     @property
     def dtype(self):
