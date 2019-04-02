@@ -3,7 +3,7 @@
 # @Date:   2019-04-01 16:22:51
 
 import sys
-from os.path import dirname, join, abspath
+from os.path import dirname, join, abspath, isfile
 from collections import deque
 import numpy as np
 cimport numpy as np
@@ -23,10 +23,12 @@ from scipy.signal import decimate
 # TODO: make sure that this does the trick... looks like original code is adding
     # subpaths of the OE plugin install dir
     # NOTE: might also just do what the old TODO (below) says...
-sys.path.append(dirname(__file__))
-sys.path.append(abspath(join(dirname(__file__),'../')))
+# sys.path.append(dirname(__file__))
+# sys.path.append(abspath(join(dirname(__file__),'../')))
 # sys.path.append('/Users/fpbatta/src/GUImerge/GUI/Plugins')
 # sys.path.append('/Users/fpbatta/src/GUImerge/GUI/Plugins/multiprocessing_plugin') # TODO put the python path in the C++ executalbe
+sys.path.append('/Users/benacland/devdir/PythonPlugin/python_modules')
+sys.path.append('/Users/benacland/devdir/PythonPlugin/python_modules/blp_trace') # TODO put the python path in the C++ executalbe
 
 isDebug = False
 
@@ -37,7 +39,6 @@ isDebug = False
 class BaseMultiprocPlugin(object):
     def __init__(self):
         super(BaseMultiprocPlugin, self).__init__()
-        #define variables
         self.ctrl_pipe = None
         self.controller = None
         self.ctrl_processes = None
@@ -82,7 +83,6 @@ class BaseMultiprocPlugin(object):
         # which to pay attention to fall on the controller's shoulders
 
         # update both of the following for the new pipe message rules
-        send = self.ctrl_pipe.send
         if finished:
             print("asking the subprocess to stop...")
             self.send_subproc_command('terminate')
@@ -91,7 +91,7 @@ class BaseMultiprocPlugin(object):
             self.ctrl_pipe.close()
             return []
         else:
-            send({'data': n_arr})
+            self.ctrl_pipe.send({'data': n_arr})
         # NOTE: the following does not ensure that events related to the buffer
         # we just passed the subprocess will be returned on this call to
         # bufferfunction(). But that's probably ok... they'll be returned on a
@@ -232,7 +232,7 @@ class BasePlotController(BaseController):
     def gui_callback(self):
         # check whether you should continue
         if self.should_die.is_set():
-            break
+            return
 
         # handle any messages that might have arrived
         commands = []
@@ -257,17 +257,17 @@ class BasePlotController(BaseController):
 
         # check whether you should continue
         if self.should_die.is_set():
-            break
+            return
 
         # NOTE: handle other messages before acquiring the ui input buffer lock
 
         # check whether you should continue
         if self.should_die.is_set():
-            break
+            return
 
         # get the ui input buffer lock
         isLocked = self.plot_input_buffer.rlock.acquire(blocking=True, timeout=1.0)
-        if !isLocked:
+        if not isLocked:
             self.terminate(RuntimeError("Oh snap! Unable to acquire the ui input buffer lock..."))
             return
 
@@ -279,7 +279,7 @@ class BasePlotController(BaseController):
 
     def handle_command(self, command, *args, **kwargs):
         # make sure the command maps to a method this class implements
-        if !(command in dir(self)):
+        if not (command in dir(self)):
             warn("no method found for command: '{}'".format(command))
             return # maybe we should print a message about this...
         m = getattr(self, command)
@@ -405,71 +405,6 @@ class BasePlotController(BaseController):
 # =           Preprocessing Threads           =
 # =============================================
 
-class DownsamplingThread(BasePreprocThread):
-    """Decimates data from one buffer, puts it in another"""
-    def __init__(self, fsIn, fsOut, chunk_size=None, *args, **kwargs):
-        """Init function.
-        
-        Args:
-            fsIn (int): Frequency of incoming data. Must be a multiple of fsOut.
-            fsOut (int): Frequency of data after downsampling.
-            chunk_size (int, optional): Data will be downsampled in multiples of chunk_size.
-            *args: positional arguments to BasePreprocThread initializer (just the input_buff)
-            **kwargs: keyword arguments to BasePreprocThread initializer
-        """
-        super(DownsamplingThread, self).__init__(*args, **kwargs)
-        self._fsIn = int(fsIn)
-        self._fsOut = int(fsOut)
-        self._ratio = int(fsIn/fsOut)
-        if min_chunk != None:
-            self._chunk_size = int(chunk_size)
-        else:
-            self._chunk_size = int(4*fsIn/fsOut)
-
-    # overrides
-
-    def process(self):
-        # we'll do our work with the input buffer inside of its lock
-        with self.input_buff.rlock:
-            nChunks = int(np.floor(self.input_buff.nUnread / self.chunk_size))
-            if nChunks == 0: # no complete chunks? nothing to do!
-                return;
-            # retrieve a copy of the input, then do the rest outside of the lock
-            d = self.input_buff.read(nChunks * self.chunk_size)
-        
-        # decimate as many complete chunks as you can (along the last axis)
-        self.output_buff.write(decimate(d, self.ratio, axis=d.ndim-1, zero_phase=True))
-
-    # -----------  Read-Only Properties  -----------
-
-    @property
-    def fsIn(self):
-        return self._fsIn
-    @fsIn.setter
-    def fsIn(self, val):
-        pass
-
-    @property
-    def fsOut(self):
-        return self._fsOut
-    @fsOut.setter
-    def fsOut(self, val):
-        pass
-
-    @property
-    def ratio(self):
-        return self._ratio
-    @ratio.setter
-    def ratio(self, val):
-        pass
-
-    @property
-    def chunk_size(self):
-        return self._chunk_size
-    @chunk_size.setter
-    def chunk_size(self, val):
-        pass
-
 class BasePreprocThread(object):
     def __init__(self, input_buff, output_dtype=np.float64, output_buff_len=30000*20, interval=0.01):
         super(BasePreprocThread, self).__init__()
@@ -519,6 +454,71 @@ class BasePreprocThread(object):
         return self._output_buff
     @output_buff.setter
     def output_buff(self, val):
+        pass
+
+class DownsamplingThread(BasePreprocThread):
+    """Decimates data from one buffer, puts it in another"""
+    def __init__(self, fsIn, fsOut, chunk_size=None, *args, **kwargs):
+        """Init function.
+        
+        Args:
+            fsIn (int): Frequency of incoming data. Must be a multiple of fsOut.
+            fsOut (int): Frequency of data after downsampling.
+            chunk_size (int, optional): Data will be downsampled in multiples of chunk_size.
+            *args: positional arguments to BasePreprocThread initializer (just the input_buff)
+            **kwargs: keyword arguments to BasePreprocThread initializer
+        """
+        super(DownsamplingThread, self).__init__(*args, **kwargs)
+        self._fsIn = int(fsIn)
+        self._fsOut = int(fsOut)
+        self._ratio = int(fsIn/fsOut)
+        if not (chunk_size is None):
+            self._chunk_size = int(chunk_size)
+        else:
+            self._chunk_size = int(4*fsIn/fsOut)
+
+    # overrides
+
+    def process(self):
+        # we'll do our work with the input buffer inside of its lock
+        with self.input_buff.rlock:
+            nChunks = int(np.floor(self.input_buff.nUnread / self.chunk_size))
+            if nChunks == 0: # no complete chunks? nothing to do!
+                return;
+            # retrieve a copy of the input, then do the rest outside of the lock
+            d = self.input_buff.read(nChunks * self.chunk_size)
+        
+        # decimate as many complete chunks as you can (along the last axis)
+        self.output_buff.write(decimate(d, self.ratio, axis=d.ndim-1, zero_phase=True))
+
+    # -----------  Read-Only Properties  -----------
+
+    @property
+    def fsIn(self):
+        return self._fsIn
+    @fsIn.setter
+    def fsIn(self, val):
+        pass
+
+    @property
+    def fsOut(self):
+        return self._fsOut
+    @fsOut.setter
+    def fsOut(self, val):
+        pass
+
+    @property
+    def ratio(self):
+        return self._ratio
+    @ratio.setter
+    def ratio(self, val):
+        pass
+
+    @property
+    def chunk_size(self):
+        return self._chunk_size
+    @chunk_size.setter
+    def chunk_size(self, val):
         pass
 
 # ===========================
@@ -785,7 +785,7 @@ class ConstantLengthCircularBuff(CircularBuff):
         # call super, then update rIdx
         with self.rlock:
             super(ConstantLengthCircularBuff, self).write(samps)
-            self._rIdx = (self + wIdx+1) % self.length
+            self.rIdx = (self.wIdx+1) % self.length
 
     def read(self):
         with self.rlock:
