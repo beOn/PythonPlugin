@@ -29,6 +29,7 @@ ds2 = 300
 FFT_CHUNK_SIZE = ds2
 FFT_NFREQS = int(ds2//2 + 1)
 FREQS = np.fft.rfftfreq(FFT_CHUNK_SIZE, 1/float(ds2))
+PLOT_SECS = 300 # we'll show 5 min of data for starters
 
 # ==============================
 # =           Plugin           =
@@ -70,7 +71,7 @@ class BLPSpectPlotController(BasePlotController):
         self.mesh = None
         self.plt_timer = None
         # set up the buffer for power estimates (300 secs @ 1 Hz = 300)
-        self.est_buff = ConstantLengthCircularBuff(np.float64, int((ds2/FFT_CHUNK_SIZE)*300))
+        self.est_buff = ConstantLengthCircularBuff(np.float64, int((ds2/FFT_CHUNK_SIZE)*PLOT_SECS))
     
     # -----------  Overrides  -----------
     
@@ -85,9 +86,12 @@ class BLPSpectPlotController(BasePlotController):
     def start_plotting(self):
         # set up the plot
         self.figure, self.ax = plt.subplots()
-        self.mesh = self.ax.pcolormesh(np.array(range(61)),FREQS[1:], np.zeros((len(FREQS)-1,60)))
+        self.mesh = self.ax.pcolormesh(
+            np.array(range(PLOT_SECS+1)),
+            FREQS[1:],
+            np.zeros((len(FREQS)-1,PLOT_SECS)))
         self.ax.margins(y=0.1)
-        self.ax.set_xlim(0., 60.)
+        self.ax.set_xlim(0., PLOT_SECS)
         self.ax.set_ylim(FREQS[1], FREQS[-1])
 
         # start the callback timer
