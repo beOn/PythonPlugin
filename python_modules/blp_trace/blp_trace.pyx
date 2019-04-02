@@ -15,25 +15,11 @@ isDebug = False
 # =           Constants           =
 # =================================
 
-RAW_BUFF_LEN = 30000 * 100  # 100s buffer at 30kHz
-DEC_BUFF_LEN = 300 * 110    # keep this one longer than the one above (in sec)
-FFT_BUFF_LEN = 60
-fs = 30000.0
-ds1 = 3000.0
-ds2 = 300.0
-dsf1 = int(fs/ds1)
-dsf2 = int(ds1/ds2)
-DEC_CHUNK_SIZE = fs
-FFT_CHUNK_SIZE = ds1
+ds1 = 3000
+ds2 = 300
+FFT_CHUNK_SIZE = ds2
 FFT_NFREQS = int(ds2//2 + 1)
-FREQS = np.fft.rfftfreq(FFT_NFREQS)
-
-# =============================
-# =           Notes           =
-# =============================
-
-# TODO: your ui timer should use the "start of first figure draw" method from
-    # https://matplotlib.org/examples/event_handling/timers.html
+FREQS = np.fft.rfftfreq(FFT_CHUNK_SIZE, 1/float(ds2))
 
 # ==============================
 # =           Plugin           =
@@ -41,7 +27,7 @@ FREQS = np.fft.rfftfreq(FFT_NFREQS)
 
 class BLPSpectPlotPlugin(BaseMultiprocPlugin):
     def __init__(self):
-        super(BLPTracePlugin, self).__init__()
+        super(BLPSpectPlotPlugin, self).__init__()
 
     # override init_controller
     def init_controller(self, input_frequency):
@@ -60,121 +46,88 @@ class BLPSpectPlotPlugin(BaseMultiprocPlugin):
         """
         return "BLP Spect Plot"
 
-class blp_trace(object):
-    def __init__(self):
-        """initialize object data"""
-        self.Enabled = 1
-        self.channel = 1
+# =============================================
+# =           Subprocess Controller           =
+# =============================================
 
-        # circular buffers
-        self.rb = RingBuffer(capacity=RAW_BUFF_LEN, dtype=np.float64)
-        self.db = RingBuffer(capacity=DEC_BUFF_LEN, dtype=np.float64)
-        # TODO: this should be np.arrays of whatever size the fft gives you
-        self.fb = RingBuffer(capacity=FFT_BUFF_LEN, dtype=(np.complex64,FFT_NFREQS))
+class BLPSpectPlotController(BasePlotController):
+    def __init__(self, *args, **kwargs):
+        super(BLPSpectPlotController, self).__init__(*args, **kwargs)
+        self.Enabled = 1    # TODO: needed?
+        self.plt_chan = 1
+        # plotting objects
+        self.ax = None
+        self.figure = None
+        self.mesh = None
+        self.plt_timer = None
+        # set up the buffer for power estimates (300 secs @ 1 Hz = 300)
+        self.est_buff = ConstantLengthCircularBuff(np.float64, int((ds2/FFT_CHUNK_SIZE)*300))
+    
+    # -----------  Overrides  -----------
+    
+    def init_preprocessors(self):
+        # TODO: delete this print statement
+        print("input freq is {}".format(self.input_frequency))
+        # set up decimating preprocessors to go from 30 kHz to 300 Hz in two steps
+        ds1 = DownsamplingThread(self.input_frequency, 3000, self.pipe_reader.buffer)
+        ds2 = DownsamplingThread(ds1.fsOut, 300, ds1.output_buff)
+        self.preprocessors = [ds1, ds2]
 
-        f = 4.0
-        fs = 100.0
-        a = np.array([np.sin(2.0*np.pi*f*t) for t in np.arange(0.0,10.0,1.0/fs)])
+    def start_plotting(self):
+        # set up the plot
+        self.figure, self.ax = plt.subplots()
+        self.mesh = ax.pcolormesh(np.array(range(61)),FREQS[1:], np.zeros((len(FREQS)-1,60)))
+        self.ax.margins(y=0.1)
+        self.ax.set_xlim(0., 60.)
+        self.ax.set_ylim(FREQS[1], FREQS[-1])
 
-        plt.plot(a)
-            plt.show()
-    
-    def startup(self, sr):
-        """to be run upon startup"""
-        # TODO: set, check the sampling rate
-    
-    def plugin_name(self):
-        """tells OE the name of the program"""
-        return "blp_trace"
-    
-    def is_ready(self):
-        """tells OE everything ran smoothly"""
-        return self.Enabled
-    
-    def param_config(self):
-        """return button, sliders, etc to be present in the editor OE side"""
-        chan_labels = list(range(1,33));
-        return [("int_set", "channel", chan_labels),]
-    
-    def decimate(self):
-        # decimate as much as you can from the raw buffer
-        # goddammit, why isn't there a multi-popping circular buffer in numpy???
-        while(len(self.rb) >= DEC_CHUNK_SIZE):
-            # if you run out of space, clear the buffer by estimating
-            if len(self.db) == DEC_BUFF_LEN:
-                self.estimate()
-            # decimate as much as you can without overflowing the next buffer
-            avail = np.minimum(int(np.floor(DEC_BUFF_LEN-len(self.db), np.floor(len(self.rb)/float(DEC_CHUNK_SIZE)))))
-            for i in range(avail):
-                self.db.extend(decimate(decimate([self.rb.popleft() for x in range(DEC_CHUNK_SIZE)], dsf1, zero_phase=True), dsf2, zero_phase=True))
-    
-    def estimate(self):
-        # estimate the fft for as many decimated chunks as you can
-        while(len(self.db) >= FFT_CHUNK_SIZE):
-            self.rb.append(np.abs(np.fft.rfft([self.db.popleft() for x in range(FFT_CHUNK_SIZE)])))
+        # start the callback timer
+        self.plt_timer = self.figure.canvas.new_timer(interval=500,)
+        self.plt_timer.add_callback(self.gui_callback)
+        self.plt_timer.start()
+        plt.show()
 
-    
+    def stop_plotting(self):
+        # stop the timer and close the plot
+        self.plt_timer.stop()
+        self.plt_timer = None
+        plt.close('all')
+
     def update_plot(self):
-        # TODO: update the plot
-        pass
-    
-    def bufferfunction(self, n_arr):
-        """Access to voltage data buffer. Returns events"""
-        cdef int chan_in
-        cdef int chan_out
-        chan_in = self.channel-1 # -1 because the list is 1-based
-        cdef int n_samps = n_arr.shape[1]
-        cdef int didx = 0
+        # if channel has changed, clear the buffers
+        if self.params.get('chan_in', self.plt_chan) != self.plt_chan:
+            self.plt_chan = self.params['chan_in']
+            self.est_buff.fill(0.0)
 
-        if len(self.rb) < n_samps:
-            # add everything to the buffer
-            self.rb.extend(n_arr[chan_in, :])
-        else:
-            # decimate to clear out the buffer
-            self.decimate()
-            # repeatedly fill up what you can, then decimate, unitl you've got
-            # everything in the buffer
-            r = n_samps
-            while r > 0:
-                # TODO: this
-                avail = np.minimum(r, RAW_BUFF_LEN-len(self.rb))
-                self.rb.extend(narr[chan_in, n_samps-r:n_samps-r+avail])
-                r = r-avail
-                self.decimate()
+        # estimate power for data from input buffer (if there's enough)
+        nChunks = int(np.floor(self.plot_input_buffer.nUnread / FFT_CHUNK_SIZE))
+        # not enough? then there's nothing to do.
+        if nChunks == 0:
+            return
+        for i in range(nChunks):
+            self.est_buff.write(np.abs(np.fft.rfft(self.plot_input_buffer.read(FFT_CHUNK_SIZE))).reshape(FFT_NFREQS,1))
 
+        # set the data like so:
+        C = self.est_buff.read().ravel()
+        mesh.set_array(C)
 
-        # if there's enough left to decimate, decimate what remains
-        while(len(self.rb) > DEC_CHUNK_SIZE):
-            # NOTE: protected by relative buffer size... but might need to add
-            # similar logic to the above down the line
-            self.decimate()
+        # update the color bar limits like so:
+        mesh.set_clim(vmin=np.min(C), vmax=np.max(C))
 
+        # redraw the plot
+        self.ax.margins(y=0.1) # TODO: remove if you can
+        self.ax.relim()
+        self.ax.autoscale_view(True,True,True)
+        self.figure.canvas.draw()
+        self.figure.canvas.flush_events()
 
-        # if there's enough to fft, fft and add to the fft buffer
-        replot = len(self.db) > FFT_CHUNK_SIZE
-        while(len(self.db) > FFT_CHUNK_SIZE):
-            self.estimate()
-            replot=True
+    # -----------  Static Overrides  -----------
 
+    @staticmethod
+    def param_config():
+        # subclasses may override if they want to surface UI elements in the OE GUI
+        chan_labels = list(range(32))
+        return ("int_set", "chan_in", chan_labels)
 
-        # if you fft-ed, update the figure
-        if replot:
-            self.update_plot()
-
-        events = []
-        return events
-    def handleEvents(eventType,sourceID,subProcessorIdx,timestamp,sourceIndex):
-        """handle events passed from OE"""
-    def handleSpike(self, electrode, sortedID, n_arr):
-        """handle spikes passed from OE"""
-
-
-pluginOp = blp_trace()
-
+pluginOp = BLPSpectPlotPlugin()
 include '../plugin.pyx'
-
-
-
-
-
-# self.y = np.append(self.y, n_arr[self.chan_in-1, :])
