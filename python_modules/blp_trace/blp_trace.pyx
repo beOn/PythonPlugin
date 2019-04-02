@@ -8,11 +8,13 @@ import numpy as np
 cimport numpy as np
 import matplotlib.pyplot as plt
 
-sys.path.append(dirname(__file__))
-sys.path.append(abspath(join(dirname(__file__),'../')))
+from cython cimport view
 
-from .multiproc_base import (BaseMultiprocPlugin, BasePlotController,
-    ConstantLengthCircularBuff, DownsamplingThread)
+sys.path.append('/Users/benacland/devdir/PythonPlugin/python_modules')
+sys.path.append('/Users/benacland/devdir/PythonPlugin/python_modules/blp_trace') # TODO put the python path in the C++ executalbe
+
+# from .multiproc_base import (BaseMultiprocPlugin, BasePlotController,
+#     ConstantLengthCircularBuff, DownsamplingThread)
 
 isDebug = False
 
