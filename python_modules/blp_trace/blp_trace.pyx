@@ -136,7 +136,7 @@ class BLPSpectPlotController(BasePlotController):
     def param_config():
         # subclasses may override if they want to surface UI elements in the OE GUI
         chan_labels = list(range(32))
-        return ("int_set", "chan_in", chan_labels)
+        return (("int_set", "chan_in", chan_labels),)
 
 pluginOp = BLPSpectPlotPlugin()
 include '../plugin.pyx'
