@@ -103,9 +103,11 @@ class BaseMultiprocPlugin(object):
 
     def __setattr__(self, key, value):
         # if the subproc class has a matching param config, it gets the call
-        if key in self.controller.param_config():
-            self.send_subproc_param(key, value)
-            return
+        if hasattr(self,'controller') and self.controller is not None:
+            # hasattr needed to prevent crash during init
+            if key in self.controller.param_config():
+                self.send_subproc_param(key, value)
+                return
         # TODO: it might be nice to keep track of the param configs in this
         # class, and tie into the OE plugin param persistence machinery
         object.__setattr__(self, key, value)
