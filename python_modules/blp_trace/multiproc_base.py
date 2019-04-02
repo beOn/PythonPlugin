@@ -12,11 +12,10 @@ from threading import Thread, RLock, Event
 from warnings import warn
 from inspect import getargspec
 from time import sleep
+import multiprocessing as mp
 
 # NOTE: move if you move DownsamplingThread elsewhere
 from scipy.signal import decimate
-
-import multiprocessing as mp
 
 # TODO: add some docs
 
@@ -30,6 +29,10 @@ sys.path.append(abspath(join(dirname(__file__),'../')))
 # sys.path.append('/Users/fpbatta/src/GUImerge/GUI/Plugins/multiprocessing_plugin') # TODO put the python path in the C++ executalbe
 
 isDebug = False
+
+# =======================================
+# =           Abstract Plugin           =
+# =======================================
 
 class BaseMultiprocPlugin():
     def __init__(self):
@@ -126,6 +129,10 @@ class BaseMultiprocPlugin():
 
     def __del__(self):
         self.bufferfunction(finished=True)
+
+# ============================================
+# =           Abstract Controllers           =
+# ============================================
 
 class BaseController(object):
     """
@@ -375,6 +382,10 @@ class BasePlotController(BaseController):
     def input_frequency(self, val):
         pass
 
+# =============================================
+# =           Preprocessing Threads           =
+# =============================================
+
 class DownsamplingThread(BasePreprocThread):
     """Decimates data from one buffer, puts it in another"""
     def __init__(self, fsIn, fsOut, chunk_size=None, *args, **kwargs):
@@ -490,6 +501,10 @@ class BasePreprocThread(object):
     def output_buff(self, val):
         pass
 
+# ===========================
+# =           IPC           =
+# ===========================
+
 class PipeCleaner(object):
     """Copies input from a pipe to a buffer and message queue"""
     def __init__(self, pipe, dtype=np.float64, buff_len=30000*20, interval=0.001, msg_lock=RLock(), buff_lock=RLock()):
@@ -573,6 +588,10 @@ class PipeCleaner(object):
     @msg_queue.setter
     def msg_queue(self, val):
         pass
+
+# ===========================================
+# =           Thread-Safe Buffers           =
+# ===========================================
 
 class CircularBuff(object):
     """
