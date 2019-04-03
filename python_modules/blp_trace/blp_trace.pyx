@@ -120,8 +120,10 @@ class BLPSpectPlotController(BasePlotController):
         for i in range(nChunks):
             self.est_buff.write(np.abs(np.fft.rfft(self.plot_input_buffer.read(FFT_CHUNK_SIZE)[self.plt_chan,:])).reshape(FFT_NFREQS,1))
 
-        # set the data like so:
-        C = self.est_buff.read().ravel()
+        # set the data like so (we want it to flow from right to left):
+        C = np.fliplr(np.flipud(self.est_buff.read())).ravel()
+        lIdxs = C>0
+        C[lIdxs] = 10. * np.log10(C[lIdxs])
         self.mesh.set_array(C)
 
         # update the color bar limits like so:
