@@ -110,7 +110,7 @@ class BLPSpectPlotController(BasePlotController):
         # if channel has changed, clear the buffers
         if self.params.get('chan_in', self.plt_chan) != self.plt_chan:
             self.plt_chan = self.params['chan_in']
-            self.est_buff.fill(0.0)
+            self.est_buff.clear()
 
         # estimate power for data from input buffer (if there's enough)
         nChunks = int(np.floor(self.plot_input_buffer.nUnread / FFT_CHUNK_SIZE))

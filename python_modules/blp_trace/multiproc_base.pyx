@@ -722,6 +722,25 @@ class CircularBuff(object):
                 self.buffer[:,0:(inSamps-r)] = samps[:,r:]
             self._wIdx = (self._wIdx + inSamps) % self.length
 
+    def clear(self):
+        """
+        Sets all values in the buffer to 0, sets nUnread to 0
+        """
+        with self.rlock:
+            if self._buffer is None:
+                return
+            self._buffer.fill(0)
+            self.reset_indices()
+
+    def reset_indices(self):
+        """
+        Resets the read and write indices.
+        """
+        with self.rlock:
+            self._rIdx = 0
+            self._wIdx = 0
+        
+
     # -----------  Read-Only Properties  -----------
 
     @property
@@ -794,4 +813,9 @@ class ConstantLengthCircularBuff(CircularBuff):
     def read(self):
         with self.rlock:
             return np.hstack([self.buffer[:,self.rIdx:], self.buffer[:,:self.rIdx]])
+
+    def reset_indices(self):
+        with self.rlock:
+            self._wIdx = 0
+            self._rIdx = 1
 
