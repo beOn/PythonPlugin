@@ -75,6 +75,10 @@ class BLPSpectPlotController(BasePlotController):
     
     # -----------  Overrides  -----------
     
+    def init_params(self):
+        # initialize the parameters dict
+        self.params = {'chan_in':0}
+
     def init_preprocessors(self):
         # TODO: delete this print statement
         print("input freq is {}".format(self.input_frequency))

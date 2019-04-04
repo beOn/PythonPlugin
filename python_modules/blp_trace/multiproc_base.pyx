@@ -41,9 +41,15 @@ class BaseMultiprocPlugin(object):
     def __init__(self):
         super(BaseMultiprocPlugin, self).__init__()
         self.ctrl_pipe = None
+        self.pipe_reader = None
+        self.pipe_thread = None
         self.controller = None
         self.ctrl_processes = None
         self.has_child = False
+        # req/resp vars
+        self.reqIdxLock = None
+        self.reqIdx = 0
+        self.respHandlers = {}
 
     def startup(self, sr):
         # we'll use the 'spawn' start method
@@ -55,19 +61,43 @@ class BaseMultiprocPlugin(object):
             raise FileNotFoundError("Could not find python executable '{}'".format(pyPath))
         ctx.set_executable(pyPath)
 
+        # reset vars used to issue and handle requests and responses
+        self.reqIdxLock = RLock()
+        self.reqIdx = 0
+        self.respHandlers = {}
+
         # subclasses should override to set self.controller to a subclass of BasePlotController
         self.init_controller(int(sr))
 
-        # start up the subprocess
+        # set up the pipe we'll use for ipc with the subprocess
         self.ctrl_pipe, controllers_pipe = ctx.Pipe()
+
+        # set up the pipe reader we'll use to listen to the subprocess
+        self.init_pipe_reader(buff_len=sr*10, interval=0.001)
+
+        # # start the pipe cleaner
+        self.pipe_thread = Thread(target=self.pipe_reader, daemon=True)
+        self.pipe_thread.start()
+        
+        # start up the subprocess
         self.ctrl_processes = ctx.Process(target=self.controller, args=(controllers_pipe,))
         self.ctrl_processes.daemon = True
         self.ctrl_processes.start()
         self.has_child = True
 
+    def init_pipe_reader(self, buff_len=30000*10, interval=0.001):
+        """
+        subclasses can override to customize the pipe_reader settings
+        """
+        self.pipe_reader = PipeCleaner(self.ctrl_pipe,
+            buff_len=int(buff_len),  
+            interval=interval
+            )
+
     def is_ready(self):
-        # TODO: (later) ask the subprocess to tell us if it's ready
-        return self.has_child
+        # ask the subprocess to tell us if it's ready
+        resp = self.send_subproc_request('is_ready', timeout=0.5)
+        return 1 if resp else 0
 
     def param_config(self):
         return self.controller.param_config()
@@ -75,8 +105,91 @@ class BaseMultiprocPlugin(object):
     def send_subproc_command(self, command, *args, **kwargs):
         self.ctrl_pipe.send(('cmd', command, args, kwargs))
 
-    def send_subproc_param(self, name, value):
-        self.send_subproc_command('set_param', name, value)
+    def send_subproc_request(self, req_name, *args, timeout=0.1, **kwargs):
+        """
+        Sends a request to the subprocess controller and waits (timeout) secs
+        for a response.
+        
+        Calls send_subproc_request_async() and waits. Will return None and issue
+        a warning on timeout.
+        
+        Raises: ValueError: Timeout must be >0.
+        
+        @param      self      The object
+        @param      req_name  The request name
+        @param      args      Any arguments needed for this particular request
+        @param      timeout   The timeout (secs)
+        @param      kwargs    Any kwargs needed for this particular request
+        
+        @return     The list/tuple of values returned by the controller, or an
+                    empty list on timeout.
+        """
+        # make sure the timeout is reasonable
+        if not (timeout > 0):
+            raise ValueError("send_subproc_request timeout must be > 0, but was {}".format(timeout))
+        # create an event that will let us know when the request has been handled
+        cbe = Event()
+        cbe.clear()
+        # array that will receive the response value
+        resp = []
+        # response callback will simply set that event and pass on the response value
+        def cb(req_id, *args):
+            resp.extend(args)
+            cbe.set()
+        # issue the request
+        self.send_subproc_request_async(req_name, cb, *args, **kwargs)
+        # now wait on the event (or the timeout)
+        if not cbe.wait(float(timeout)):
+            # the request timed out, return None and issue a warning    
+            warn("request ({}, {}, {}) timed out... returning empty list".format(req_name, args, kwargs))
+            return []
+        # return whatever was put into the response array
+        return resp
+    
+    def send_subproc_request_async(self, req_name, callback, *args, **kwargs):
+        # callback should be a callable that takes 1 arg: a tuple containing
+        # req_id, and optionall additional response args
+        if (self.has_child == False) or (self.ctrl_pipe is None) or (self.pipe_reader is None):
+            raise RuntimeError("Can't send request...")
+        # increment and copy the request index
+        with self.reqIdxLock:
+            self.reqIdx = self.reqIdx+1
+            rIdx = self.reqIdx
+        # register the request
+        self.pipe_reader.register_request(rIdx, callback)
+        # send the request
+        self.send_subproc_command('handle_request', rIdx, req_name, *args)
+
+    def send_subproc_param(self, param_name, value):
+        """
+        @brief      Sets a parameter on the subprocess controller (if there is
+                    one)
+        
+                    Returns immediately
+        
+        @param      self        The object
+        @param      param_name  The parameter name
+        @param      value       The new value for the param
+        """
+        self.send_subproc_command('set_param', param_name, value)
+
+    def get_subproc_param(self, param_name, default=None, timeout=0.1):
+        """
+        @brief      Gets a parameter from the subprocess controller.
+        
+        @param      self        The object
+        @param      param_name  The parameter name
+        @param      default     The default value to return
+        @param      timeout     How long to wait for a respone (secs) before
+                                returning default. Must be > 0.
+        
+        @return     The subproc parameter, or default on timeout or if the
+                    controller doesn't have a value stored for the given param.
+        """
+        resp = self.send_subproc_request('param', param_name, timeout=timeout)
+        if (len(resp) > 0) and (resp[0] is not None):
+            return resp[0]
+        return default
 
     def bufferfunction(self, n_arr=None, finished=False):
         # we pass all channels to the controller, and let the decision about
@@ -101,19 +214,41 @@ class BaseMultiprocPlugin(object):
             events.append(self.ctrl_pipe.recv())
         return events
 
-    def __setattr__(self, key, value):
+    def handleEvents(eventType,sourceID,subProcessorIdx,timestamp,sourceIndex):
+        # TODO: this
+        print(">>>>> handleEvents: {}".format((eventType,sourceID,subProcessorIdx,timestamp,sourceIndex)))
+
+    def handleSpike(self, electrode, sortedID, n_arr):
+        # TODO: this
+        pass
+
+    def __setattr__(self, name, value):
         # if the subproc class has a matching param config, it gets the call
         if hasattr(self,'controller') and self.controller is not None:
             # hasattr needed to prevent crash during init
-            if any([p[1]==key for p in self.controller.param_config()]):
-                self.send_subproc_param(key, value)
+            if any([p[1] == name for p in self.controller.param_config()]):
+                self.send_subproc_param(name, value)
                 return
         # TODO: it might be nice to keep track of the param configs in this
         # class, and tie into the OE plugin param persistence machinery
-        object.__setattr__(self, key, value)
+        object.__setattr__(self, name, value)
+
+    def __getattr__(self, name):
+        if name is not 'controller' and hasattr(self,'controller') and self.controller is not None:
+            if any([p[1]==name for p in self.controller.param_config()]):
+                return self.get_subproc_param(name, default=None, timeout=0.1)
+        # Default behaviour
+        raise AttributeError
 
     def __del__(self):
         self.bufferfunction(finished=True)
+        # kill the pipe reading thread and close the pipe
+        self.pipe_reader.kill_thread()
+        self.pipe_thread.join()
+        self.pipe_reader = None
+        self.pipe_thread = None
+        self.ctrl_pipe.close()
+        self.ctrl_pipe = None
 
     # -----------  Virtual Methods  -----------
 
@@ -150,6 +285,7 @@ class BaseController(object):
 
 class BasePlotController(BaseController):
     def __init__(self, input_frequency, plot_frequency=0.1):
+        super(BasePlotController, self).__init__()
         self.pipe = None
         self._input_frequency = input_frequency
         self.plot_frequency = plot_frequency
@@ -159,6 +295,8 @@ class BasePlotController(BaseController):
         self.preproc_threads = []
         self.plot_input_buffer = None
         self.params = {}
+        # let subclasses set the initial parameters, if they want
+        self.init_params()
         # event that lets us know when to knock it off (initialized later)
         self.should_die = None
 
@@ -212,8 +350,7 @@ class BasePlotController(BaseController):
             )
 
     def is_ready(self):
-        # TODO: this isn't used at this point... see method with same name in
-        # base plugin class
+        # default implementation is to always say yes... subclasses may override
         return 1
         
     def parse_command(self, cmd_tuple):
@@ -280,6 +417,18 @@ class BasePlotController(BaseController):
 
         # release the ui input buffer lock
         self.plot_input_buffer.rlock.release();
+
+    def send_pipe_response(self, req_id, *resp_args):
+        robj = ['rsp', req_id]
+        robj.extend(resp_args)
+        self.pipe.send(robj)
+
+    def handle_request(self, req_id, req_name, *args, **kwargs):
+        resp = None
+        if req_name == 'is_ready':
+            self.send_pipe_response(req_id, self.is_ready())
+        elif req_name == 'param' and len(args) > 0:
+            self.send_pipe_response(req_id, self.params.get(args[0], None))
 
     def handle_command(self, command, *args, **kwargs):
         # make sure the command maps to a method this class implements
@@ -386,6 +535,17 @@ class BasePlotController(BaseController):
         """
         raise NotImplementedError("subclasses should override init_preprocessors()")
 
+    def init_params(self):
+        """
+        @brief      Optionally override this method to set self.params default
+                    values.
+        
+                    Keys should be the names of params specified in your
+                    subclass' override of BasePlotController.param_config().
+        """
+
+        pass
+
     # -----------  Read-Only Properties  -----------
 
     @property
@@ -393,15 +553,6 @@ class BasePlotController(BaseController):
         return self._input_frequency
     @input_frequency.setter
     def input_frequency(self, val):
-        pass
-
-    # -----------  Unimplemented  -----------
-
-    def handleEvents(eventType,sourceID,subProcessorIdx,timestamp,sourceIndex):
-        """handle events passed from OE"""
-        pass
-    def handleSpike(self, electrode, sortedID, n_arr):
-        """handle spikes passed from OE"""
         pass
     
 
@@ -531,26 +682,34 @@ class DownsamplingThread(BasePreprocThread):
 
 class PipeCleaner(object):
     """Copies input from a pipe to a buffer and message queue"""
-    def __init__(self, pipe, dtype=np.float64, buff_len=30000*20, interval=0.001, msg_lock=RLock(), buff_lock=RLock()):
+    def __init__(self, pipe, dtype=np.float64, buff_len=30000*20, interval=0.001, msg_lock=RLock(), buff_lock=RLock(), rsp_lock=RLock()):
         super(PipeCleaner, self).__init__()
         self.pipe = pipe
+        self.interval = interval
         self._buffer = CircularBuff(dtype, buff_len, rlock=buff_lock)
         self._msg_lock = msg_lock
         self._msg_queue = deque()
-        self.interval = interval
+        # vars for matching request responses to their callback events
+        self._rsp_lock = rsp_lock;
+        self.rsp_map = {}
+        self.req_idx = 0
         # event that lets us know when to knock it off
         self.should_die = Event()
         self.should_die.clear()
 
     def __call__(self):
+        # clear out all buffers
+        self.purge_buffers()
         while True:
             # make sure we should keep going
             if self.should_die.is_set():
+                self.purge_buffers()
                 break
             # grab everything that's currently in the pipe
             self.clear_pipe()
             # make sure we should still keep going
             if self.should_die.is_set():
+                self.purge_buffers()
                 break
             # wait for a bit before continuing. NOTE: there will be some drift in
             # loop start times... but that shouldn't be a problem.
@@ -565,26 +724,79 @@ class PipeCleaner(object):
             1. data: ('data', numpy.ndarray((nChans,X), self.dtype)) where type(X) == int
             2. commands: ('cmd', cmd_name, [args(array/tuple)], [kwargs(dict)])
                 # N.B. either or both of args and kwargs can be omitted
+            3. responses: ('rsp', req_id, rsp_args... (any number of rsp_args))
+
+        # TODO: move notes about supported formats into the classes that actually handle messages
         """
         new_msgs = []
+        new_rsps = []
         while self.pipe.poll():
             thing = self.pipe.recv()
-            if not (type(thing) == tuple):
+            if not isinstance(thing, (list,tuple)):
                 continue
             if thing[0] == 'data':
                 self.buffer.write(thing[1]);
+            if thing[0] == 'rsp':
+                new_rsps.append(thing)
             else:
                 new_msgs.append(thing)
-        # add new events to the queue (using the msg_lock)
+        # add new messages to the queue (using the msg_lock)
         if new_msgs:
             with self.msg_lock:
                 self.msg_queue.extend(new_msgs)
+        # call response handling callbacks (these should be kept lightweight)
+        for rsp in new_rsps:
+            # request_id should be the second item in the resp tuple
+            # we'll use it to look up the response callback
+            with self.rsp_lock:
+                cb = self.rsp_map.pop(rsp[1],None)
+            # call the callback
+            if cb is not None:
+                cb(*rsp[1:])
+        # NOTE: there's a good argument to be made that command and request
+        # mechanisms should be merged. If I'd thought of that 90 minutes ago, so
+        # they would be.
+
+    def register_request(self, req_id, callback):
+        """
+        Maps req_id to callback, so it'll be called if/when a matching response
+        comes through the pipe. You should register your request before issuing it.
+
+        @param      req_id    The request identifier
+        @param      callback  The callback
+        """
+        with self.rsp_lock:
+            # the req_id must be unique, or we won't register
+            if req_id in self.rsp_map:
+                warn("ignoring duplicate registration of request id {}".format(req_id))
+                return
+            if not callable(callback):
+                warn("non-callable callback for request id {}".format(req_id))
+                return
+            self.rsp_map[req_id] = callback
     
     def read_messages(self):
         # with msg_lock, copy all events from the msg_queue into an array
         with self.msg_lock:
             n = len(self.msg_queue)
             return [self.msg_queue.popleft() for x in range(n)]
+
+    def purge_buffers(self):
+        """
+        Resets the various buffers, queues, etc owned by this object.
+        
+        Meant to be called just before returning from __call__(), and just
+        before entering its main loop.
+        """
+        if self.buffer:
+            with self.buffer.rlock:
+                self.buffer.clear()
+        if (type(self.msg_queue) is deque) and (self.msg_lock is not None):
+            with self.msg_lock:
+                self.msg_queue.clear()
+        if self.rsp_lock is not None:
+            with self.rsp_lock:
+                self.rsp_map = {}
 
     def kill_thread(self):
         # after setting this event, the thread will die before the next (or
@@ -612,6 +824,13 @@ class PipeCleaner(object):
         return self._msg_queue
     @msg_queue.setter
     def msg_queue(self, val):
+        pass
+
+    @property
+    def rsp_lock(self):
+        return self._rsp_lock
+    @rsp_lock.setter
+    def rsp_lock(self, val):
         pass
 
 # ===========================================
