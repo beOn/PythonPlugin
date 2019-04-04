@@ -24,11 +24,11 @@ isDebug = False
 # =           Constants           =
 # =================================
 
-ds1 = 3000
-ds2 = 300
-FFT_CHUNK_SIZE = ds2
-FFT_NFREQS = int(ds2//2 + 1)
-FREQS = np.fft.rfftfreq(FFT_CHUNK_SIZE, 1/float(ds2))
+DS1 = 3000
+DS2 = 300
+FFT_CHUNK_SIZE = DS2
+FFT_NFREQS = int(DS2//2 + 1)
+FREQS = np.fft.rfftfreq(FFT_CHUNK_SIZE, 1/float(DS2))
 PLOT_SECS = 300 # we'll show 5 min of data for starters
 
 # ==============================
@@ -71,7 +71,7 @@ class BLPSpectPlotController(BasePlotController):
         self.mesh = None
         self.plt_timer = None
         # set up the buffer for power estimates (300 secs @ 1 Hz = 300)
-        self.est_buff = ConstantLengthCircularBuff(np.float64, int((ds2/FFT_CHUNK_SIZE)*PLOT_SECS))
+        self.est_buff = ConstantLengthCircularBuff(np.float64, int((DS2/FFT_CHUNK_SIZE)*PLOT_SECS))
     
     # -----------  Overrides  -----------
     
@@ -80,11 +80,10 @@ class BLPSpectPlotController(BasePlotController):
         self.params = {'chan_in':0}
 
     def init_preprocessors(self):
-        # TODO: delete this print statement
         print("input freq is {}".format(self.input_frequency))
         # set up decimating preprocessors to go from 30 kHz to 300 Hz in two steps
-        ds1 = DownsamplingThread(self.input_frequency, 3000, self.pipe_reader.buffer)
-        ds2 = DownsamplingThread(ds1.fsOut, 300, ds1.output_buff)
+        ds1 = DownsamplingThread(self.input_frequency, DS1, self.pipe_reader.buffer)
+        ds2 = DownsamplingThread(ds1.fsOut, DS2, ds1.output_buff)
         self.preprocessors = [ds1, ds2]
 
     def start_plotting(self):
@@ -125,7 +124,7 @@ class BLPSpectPlotController(BasePlotController):
             self.est_buff.write(np.abs(np.fft.rfft(self.plot_input_buffer.read(FFT_CHUNK_SIZE)[self.plt_chan,:])).reshape(FFT_NFREQS,1))
 
         # set the data like so (we want it to flow from right to left):
-        C = np.fliplr(self.est_buff.read()).ravel()
+        C = self.est_buff.read().ravel()
         lIdxs = C>0
         C[lIdxs] = 10. * np.log10(C[lIdxs])
         self.mesh.set_array(C)

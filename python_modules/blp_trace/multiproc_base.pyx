@@ -1027,7 +1027,7 @@ class ConstantLengthCircularBuff(CircularBuff):
         # call super, then update rIdx
         with self.rlock:
             super(ConstantLengthCircularBuff, self).write(samps)
-            self.rIdx = (self.wIdx+1) % self.length
+            self._rIdx = self.wIdx
 
     def read(self):
         with self.rlock:
