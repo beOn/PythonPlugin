@@ -125,7 +125,7 @@ class BLPSpectPlotController(BasePlotController):
             self.est_buff.write(np.abs(np.fft.rfft(self.plot_input_buffer.read(FFT_CHUNK_SIZE)[self.plt_chan,:])).reshape(FFT_NFREQS,1))
 
         # set the data like so (we want it to flow from right to left):
-        C = np.fliplr(np.flipud(self.est_buff.read())).ravel()
+        C = np.fliplr(self.est_buff.read()).ravel()
         lIdxs = C>0
         C[lIdxs] = 10. * np.log10(C[lIdxs])
         self.mesh.set_array(C)
