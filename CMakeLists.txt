@@ -158,7 +158,6 @@ if(APPLE)
     if("${isSystemDir}" STREQUAL "-1")
         set_target_properties(${PLUGIN_NAME} PROPERTIES INSTALL_RPATH "${PYTHON_LIB_DIR}")
     endif()
-    message("install rpath: " ${CMAKE_INSTALL_RPATH})
 
     # link the IOKit framework
     target_link_libraries(${PLUGIN_NAME} debug "-framework IOKit")
