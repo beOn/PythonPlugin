@@ -10,9 +10,6 @@ import matplotlib.pyplot as plt
 
 from cython cimport view
 
-sys.path.append('/Users/benacland/devdir/PythonPlugin/python_modules')
-sys.path.append('/Users/benacland/devdir/PythonPlugin/python_modules/blp_trace') # TODO put the python path in the C++ executalbe
-
 # from .multiproc_base import (BaseMultiprocPlugin, BasePlotController,
 #     ConstantLengthCircularBuff, DownsamplingThread)
 
@@ -34,7 +31,7 @@ PLOT_SECS = 300 # we'll show 5 min of data for starters
 # ==============================
 # =           Plugin           =
 # ==============================
-        
+
 class BLPSpectPlotPlugin(BaseMultiprocPlugin):
     def __init__(self):
         super(BLPSpectPlotPlugin, self).__init__()

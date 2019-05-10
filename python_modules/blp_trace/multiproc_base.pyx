@@ -24,11 +24,9 @@ from scipy.signal import decimate
 # TODO: make sure that this does the trick... looks like original code is adding
     # subpaths of the OE plugin install dir
     # NOTE: might also just do what the old TODO (below) says...
-# sys.path.append(dirname(__file__))
-# sys.path.append(abspath(join(dirname(__file__),'../')))
-# sys.path.append('/Users/fpbatta/src/GUImerge/GUI/Plugins')
-# sys.path.append('/Users/fpbatta/src/GUImerge/GUI/Plugins/multiprocessing_plugin') # TODO put the python path in the C++ executalbe
-sys.path.append('/Users/benacland/devdir/PythonPlugin/python_modules')
+# TODO: copying from the pylia setup.py, make this a module as a first step towards
+    # getting rid of these two lines
+# sys.path.append('/Users/benacland/devdir/PythonPlugin/python_modules')
 sys.path.append('/Users/benacland/devdir/PythonPlugin/python_modules/blp_trace') # TODO put the python path in the C++ executalbe
 
 isDebug = False
