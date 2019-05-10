@@ -701,6 +701,7 @@ static PyThreadState* startInterpreter()
 #ifdef PYTHON_DEBUG
     std::cout << "PYTHONPATH: " << getenv("PYTHONPATH") << std::endl;
     std::cout << "PYTHON VERSION: " << Py_GetVersion() << std::endl;
+    std::cout << "PYTHON COPYRIGHT: " << Py_GetCopyright() << std::endl;
 #endif
 
 #if PY_MAJOR_VERSION==3
