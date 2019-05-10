@@ -99,7 +99,8 @@ set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -DNDEBUG=1")
 
 # link libraries
 target_link_libraries(${PLUGIN_NAME} ${PYTHON_LIBRARIES})
-target_link_directories(${PLUGIN_NAME} PUBLIC ${PYTHON_INCLUDE_DIRS})
+# target_link_directories(${PLUGIN_NAME} PUBLIC ${PYTHON_INCLUDE_DIRS})
+target_link_directories(${PLUGIN_NAME} PUBLIC ${PYTHON_LIB_DIRS})
 
 # preprocessor definitions
 add_definitions(-DOEPLUGIN)
