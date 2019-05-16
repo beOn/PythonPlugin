@@ -7,6 +7,7 @@ from os.path import dirname, join, abspath
 import numpy as np
 cimport numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.widgets import Button
 
 from cython cimport view
 
@@ -27,6 +28,17 @@ FFT_CHUNK_SIZE = DS2
 FFT_NFREQS = int(DS2//2 + 1)
 FREQS = np.fft.rfftfreq(FFT_CHUNK_SIZE, 1/float(DS2))
 PLOT_SECS = 300 # we'll show 5 min of data for starters
+MEAN_LOWER_FREQ = 10
+MEAN_UPPER_FREQ = 30
+MEAN_LOWER_IDX = int(np.searchsorted(FREQS, MEAN_LOWER_FREQ))
+MEAN_UPPER_IDX = int(np.searchsorted(FREQS, MEAN_UPPER_FREQ))
+
+# UI dims
+BUTT_WIDTH = .2
+BUTT_HEIGHT = .05
+BUTT_GAP = .01
+BUTT_MARGIN_Y = .05
+
 
 # ==============================
 # =           Plugin           =
@@ -64,11 +76,20 @@ class BLPSpectPlotController(BasePlotController):
         self.plt_chan = 1
         # plotting objects
         self.ax = None
+        self.ax2 = None
         self.figure = None
         self.mesh = None
+        self.meanPlt = None
         self.plt_timer = None
         # set up the buffer for power estimates (300 secs @ 1 Hz = 300)
         self.est_buff = ConstantLengthCircularBuff(np.float64, int((DS2/FFT_CHUNK_SIZE)*PLOT_SECS))
+        self.mean_buff = ConstantLengthCircularBuff(np.float64, int((DS2/FFT_CHUNK_SIZE)*PLOT_SECS))
+        self.baseline = None
+        self.baseline_mean = None
+        self.reset = False
+        self.set_bl_button = None
+        self.reset_bl_button = None
+        self.reset_plot_button = None
     
     # -----------  Overrides  -----------
     
@@ -85,7 +106,8 @@ class BLPSpectPlotController(BasePlotController):
 
     def start_plotting(self):
         # set up the plot
-        self.figure, self.ax = plt.subplots()
+        self.reset_baseline()
+        self.figure, (self.ax, self.ax2) = plt.subplots(nrows=2, ncols=1, sharex=True)
         self.mesh = self.ax.pcolormesh(
             np.array(range(PLOT_SECS+1)),
             FREQS[1:],
@@ -93,6 +115,28 @@ class BLPSpectPlotController(BasePlotController):
         self.ax.margins(y=0.1)
         self.ax.set_xlim(0., PLOT_SECS)
         self.ax.set_ylim(FREQS[1], FREQS[-1])
+
+        self.meanPlt = self.ax2.plot(np.array(range(PLOT_SECS)), np.zeros(PLOT_SECS))[0]
+        self.ax2.set_xlim(0., PLOT_SECS)
+
+
+        # buttons
+        a2bounds = self.ax2.get_position().bounds
+        bot = a2bounds[1] - BUTT_MARGIN_Y - BUTT_HEIGHT
+        left = a2bounds[0]+a2bounds[2] - BUTT_WIDTH
+        axResetBL = plt.axes([left, bot, BUTT_WIDTH, BUTT_HEIGHT])
+        left = left - BUTT_GAP - BUTT_WIDTH
+        axSetBL = plt.axes([left, bot, BUTT_WIDTH, BUTT_HEIGHT])
+        left = left - BUTT_GAP - BUTT_WIDTH
+        axResetPlot = plt.axes([left, bot, BUTT_WIDTH, BUTT_HEIGHT])
+        self.reset_bl_button = Button(axResetBL, 'Reset Baseline', color='0.85', hovercolor='0.95')
+        self.set_bl_button = Button(axSetBL, 'Set Baseline', color='0.85', hovercolor='0.95')
+        self.reset_plot_button = Button(axResetPlot, 'Reset Plot', color='0.85', hovercolor='0.95')
+
+        # button callbacks
+        self.reset_bl_button.on_clicked(self.reset_baseline)
+        self.set_bl_button.on_clicked(self.set_baseline)
+        self.reset_plot_button.on_clicked(self.request_reset)
 
         # start the callback timer
         self.plt_timer = self.figure.canvas.new_timer(interval=500,)
@@ -108,9 +152,12 @@ class BLPSpectPlotController(BasePlotController):
 
     def update_plot(self):
         # if channel has changed, clear the buffers
-        if self.params.get('chan_in', self.plt_chan) != self.plt_chan:
+        if (self.params.get('chan_in', self.plt_chan) != self.plt_chan) or self.reset:
             self.plt_chan = self.params['chan_in']
             self.est_buff.clear()
+            self.mean_buff.clear()
+            self.reset_baseline()
+            self.reset = False
 
         # estimate power for data from input buffer (if there's enough)
         nChunks = int(np.floor(self.plot_input_buffer.nUnread / FFT_CHUNK_SIZE))
@@ -118,13 +165,23 @@ class BLPSpectPlotController(BasePlotController):
         if nChunks == 0:
             return
         for i in range(nChunks):
-            self.est_buff.write(np.abs(np.fft.rfft(self.plot_input_buffer.read(FFT_CHUNK_SIZE)[self.plt_chan,:])).reshape(FFT_NFREQS,1))
+            chunkfft = np.abs(np.fft.rfft(self.plot_input_buffer.read(FFT_CHUNK_SIZE)[self.plt_chan,:])).reshape(FFT_NFREQS,1)
+            self.mean_buff.write(np.mean(chunkfft[MEAN_LOWER_IDX:MEAN_UPPER_IDX],0))
+            self.est_buff.write(chunkfft)
 
         # set the data like so (we want it to flow from right to left):
-        C = self.est_buff.read().ravel()
+        # calculate as dB difference from baseline
+        C = self.est_buff.read() / self.baseline
         lIdxs = C>0
-        C[lIdxs] = 10. * np.log10(C[lIdxs])
-        self.mesh.set_array(C)
+        C[lIdxs] = 20. * np.log10(C[lIdxs])
+        self.mesh.set_array(C.ravel())
+
+        Cm = self.est_buff.read()
+        mIdxs = np.sum(Cm,0) != 0
+        Cm = np.mean(np.divide(Cm,self.baseline)[MEAN_LOWER_IDX:MEAN_UPPER_IDX,:],0)
+        lIdxs = Cm>0
+        Cm[lIdxs] = 20. * np.log10(Cm[lIdxs])
+        self.meanPlt.set_ydata(Cm)
 
         # update the color bar limits like so:
         self.mesh.set_clim(vmin=np.min(C), vmax=np.max(C))
@@ -133,8 +190,34 @@ class BLPSpectPlotController(BasePlotController):
         self.ax.margins(y=0.1) # TODO: remove if you can
         self.ax.relim()
         self.ax.autoscale_view(True,True,True)
+        self.ax2.margins(y=0.1) # TODO: remove if you can
+        self.ax2.relim()
+        self.ax2.autoscale_view(True,True,True)
         self.figure.canvas.draw()
         self.figure.canvas.flush_events()
+
+    def reset_baseline(self, event=None):
+        ### sets baseline to identity
+        self.baseline = np.ones((len(FREQS),1), np.double)
+        self.baseline_mean = 1.0
+
+    def set_baseline(self, event=None):
+        ### sets baseline to mean of all non-0 columns
+        C = self.est_buff.read()
+        mIdxs = np.sum(C,0) != 0
+        if len(np.where(mIdxs)[0]) == 0:
+            print("Must collect some data before setting baseline")
+            return
+        self.baseline = np.reshape(np.mean(C[:,mIdxs],1), (len(FREQS),1))
+        if any(self.baseline == 0):
+            print("invalid baseline!")
+            self.reset_baseline()
+            return
+        self.baseline_mean = np.mean(self.baseline[MEAN_LOWER_IDX:MEAN_UPPER_IDX])
+
+    def request_reset(self, event=None):
+        ### causes the buffers to 0 and resets the baseline on next buffer update
+        self.reset = True
 
     # -----------  Static Overrides  -----------
 
