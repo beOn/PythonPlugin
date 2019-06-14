@@ -49,7 +49,7 @@ class BaseMultiprocPlugin(object):
         self.reqIdx = 0
         self.respHandlers = {}
 
-    def startup(self, sr):
+    def startup(self, nchans, sr, states):
         # we'll use the 'spawn' start method
         ctx = mp.get_context('spawn')
         
@@ -82,6 +82,12 @@ class BaseMultiprocPlugin(object):
         self.ctrl_processes.daemon = True
         self.ctrl_processes.start()
         self.has_child = True
+
+    def update_settings(self, nchans, sr):
+        """handle changing number of channels and sample rates
+        TODO: do this... maybe.
+        """
+        pass
 
     def init_pipe_reader(self, buff_len=30000*10, interval=0.001):
         """
